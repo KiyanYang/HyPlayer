@@ -132,6 +132,7 @@
     </Compile>
     <Compile Include="Classes\Api.cs" />
     <Compile Include="Classes\CloudUpload.cs" />
+    <Compile Include="Classes\FastFileEnum.cs" />
     <Compile Include="Classes\NCMFile.cs" />
     <Compile Include="Classes\NCSong.cs" />
     <Compile Include="Classes\PersonalFM.cs" />

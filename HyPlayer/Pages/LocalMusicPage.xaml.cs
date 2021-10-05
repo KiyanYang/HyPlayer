@@ -1,17 +1,18 @@
 ﻿#region
 
+using HyPlayer.Classes;
+using HyPlayer.HyPlayControl;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage;
-using Windows.UI.Core;
+using Windows.Storage.AccessCache;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
-using HyPlayer.Classes;
-using HyPlayer.Controls;
-using HyPlayer.HyPlayControl;
 
 #endregion
 
@@ -24,24 +25,36 @@ namespace HyPlayer.Pages
     /// </summary>
     public sealed partial class LocalMusicPage : Page
     {
-        private readonly List<HyPlayItem> localHyItems;
-        private readonly List<ListViewPlayItem> localItems;
-        private Task FileScanTask;
-        private int index;
+        private bool isLoading = false;
+        private readonly List<HyPlayItem> _localHyItems = new List<HyPlayItem>();
+        private readonly ObservableCollection<HyPlayItem> _visualHyItems = new ObservableCollection<HyPlayItem>();
+        private Task _fileScanTask;
+        private CancellationTokenSource tokenSource = new CancellationTokenSource();
 
         public LocalMusicPage()
         {
             InitializeComponent();
-            localItems = new List<ListViewPlayItem>();
-            localHyItems = new List<HyPlayItem>();
         }
+
+        private void SyncItemToView()
+        {
+            if (isLoading)
+            {
+                for (int i = _visualHyItems.Count; i < _localHyItems.Count; i++)
+                {
+                    _visualHyItems.Add(_localHyItems[i]);
+                }
+            }
+        }
+
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             base.OnNavigatedFrom(e);
-            localItems.Clear();
-            localHyItems.Clear();
-            FileScanTask?.Dispose();
+            HyPlayList.OnTimerTicked -= SyncItemToView;
+            _visualHyItems.Clear();
+            _localHyItems.Clear();
+            _fileScanTask?.Dispose();
         }
 
         protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -53,7 +66,7 @@ namespace HyPlayer.Pages
         private void Playall_Click(object sender, RoutedEventArgs e)
         {
             HyPlayList.RemoveAllSong();
-            localHyItems.AddRange(localHyItems);
+            HyPlayList.List.AddRange(_localHyItems); // 可能可以更改下
             HyPlayList.SongAppendDone();
             HyPlayList.SongMoveTo(0);
         }
@@ -61,29 +74,51 @@ namespace HyPlayer.Pages
         private void Refresh_Click(object sender, RoutedEventArgs e)
         {
             ListBoxLocalMusicContainer.SelectionChanged -= ListBoxLocalMusicContainer_SelectionChanged;
-            if (ListBoxLocalMusicContainer.Items != null) ListBoxLocalMusicContainer.Items.Clear();
-            localItems.Clear();
-            localHyItems.Clear();
-            index = 0;
+            _localHyItems.Clear();
+            _visualHyItems.Clear();
             LoadLocalMusic();
-
             ListBoxLocalMusicContainer.SelectionChanged += ListBoxLocalMusicContainer_SelectionChanged;
         }
 
         private async void LoadLocalMusic()
         {
-            if (FileScanTask != null) FileScanTask.Dispose();
+            if (_fileScanTask != null)
+            {
+                if (_fileScanTask.IsCompleted)
+                    _fileScanTask.Dispose();
+                else
+                    tokenSource.Cancel();
+            }
 
             var tmp = await KnownFolders.MusicLibrary.GetItemsAsync();
-            FileScanTask = Task.Run(() =>
+
+            _fileScanTask = Task.Run((() =>
             {
-                Common.Invoke(() =>
+                Common.ShowTeachingTip("正在扫描本地文件", "可能会耗时一段时间");
+                isLoading = true;
+                _localHyItems.Clear();
+                foreach (var item in tmp)
                 {
-                    FileLoadingIndicateRing.IsActive = true;
-                    foreach (var item in tmp) GetSubFiles(item);
-                    FileLoadingIndicateRing.IsActive = false;
-                }, CoreDispatcherPriority.Low);
-            });
+                    if (item.Path.Contains("iTunes")) continue;
+                    StorageApplicationPermissions.FutureAccessList.AddOrReplace(Guid.NewGuid().ToString("N"),
+                        item);
+                    /*
+                    if (item.IsOfType(StorageItemTypes.Folder))
+                    {
+                        await FastFileEnum.FindFilesWithWin32(item.Path, fileList);
+                    }
+                    else
+                    {
+                        fileList.Add(item.Path);
+                    }
+                    */
+                    GetSubFiles(item);
+                }
+
+                //Common.ShowTeachingTip("文件扫描完成", "共" + fileList.Count + " 个");
+                Common.ShowTeachingTip("文件扫描完成", "共" + _localHyItems.Count + " 个");
+                isLoading = false;
+            }), tokenSource.Token);
         }
 
         private async void GetSubFiles(IStorageItem item)
@@ -94,11 +129,7 @@ namespace HyPlayer.Pages
                 {
                     var file = item as StorageFile;
                     var hyPlayItem = await HyPlayList.LoadStorageFile(file);
-                    localHyItems.Add(hyPlayItem);
-                    var listViewPlay = new ListViewPlayItem(hyPlayItem.PlayItem.Name, index++,
-                        hyPlayItem.PlayItem.ArtistString);
-                    localItems.Add(listViewPlay);
-                    if (ListBoxLocalMusicContainer.Items != null) ListBoxLocalMusicContainer.Items.Add(listViewPlay);
+                    _localHyItems.Add(hyPlayItem);
                 }
                 else if (item is StorageFolder)
                 {
@@ -115,42 +146,29 @@ namespace HyPlayer.Pages
         private void ListBoxLocalMusicContainer_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             HyPlayList.RemoveAllSong();
-            localHyItems.ForEach(t => HyPlayList.List.Add(t));
+            HyPlayList.List.AddRange(_localHyItems);
             HyPlayList.SongAppendDone();
             HyPlayList.SongMoveTo(ListBoxLocalMusicContainer.SelectedIndex);
         }
 
         private async void UploadCloud_Click(object sender, RoutedEventArgs e)
         {
-            var sf = await StorageFile.GetFileFromPathAsync(localHyItems[int.Parse((sender as Button).Tag.ToString())]
-                .PlayItem.Url);
+            var sf = await StorageFile.GetFileFromPathAsync(((HyPlayItem)((Button)sender).Tag).PlayItem.Url);
             await CloudUpload.UploadMusic(sf);
         }
 
         private void Pivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if ((sender as Pivot).SelectedIndex == 1) LoadLocalMusic();
-        }
-    }
-    
-    public class ListViewPlayItem
-    {
-        public ListViewPlayItem(string name, int index, string artist)
-        {
-            Name = name;
-            Artist = artist;
-            this.index = index;
-        }
-
-        public string Name { get; }
-        public string Artist { get; }
-        public string DisplayName => Artist + " - " + Name;
-
-        public int index { get; }
-
-        public override string ToString()
-        {
-            return Artist + " - " + Name;
+            if (((Pivot)sender).SelectedIndex == 1)
+            {
+                _visualHyItems.Clear();
+                LoadLocalMusic();
+                HyPlayList.OnTimerTicked += SyncItemToView;
+            }
+            else
+            {
+                HyPlayList.OnTimerTicked -= SyncItemToView;
+            }
         }
     }
 }
