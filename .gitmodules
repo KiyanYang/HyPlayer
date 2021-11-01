@@ -1,0 +1,8 @@
+[submodule "HyPlayer/NeteaseCloudMusicApi"]
+	path = HyPlayer/NeteaseCloudMusicApi
+	url = https://github.com/HyPlayer/NeteaseCloudMusicApi.git
+	branch = WinUI3
+[submodule "HyPlayer/Kawazu"]
+	path = HyPlayer/Kawazu
+	url = https://github.com/HyPlayer/Kawazu.git
+	branch = WinUI3
