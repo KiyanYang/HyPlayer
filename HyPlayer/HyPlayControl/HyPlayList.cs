@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Timers;
 using Windows.Media;
@@ -848,8 +849,8 @@ public static class HyPlayList
                 new SongLyric { HaveTranslation = false, LyricTime = TimeSpan.Zero, PureLyric = "" });
         LyricPos = 0;
 
-        Common.Invoke(() => OnLyricLoaded?.Invoke());
-        Common.Invoke(() => OnLyricChange?.Invoke());
+        _ = Common.Invoke(() => OnLyricLoaded?.Invoke());
+        _ = Common.Invoke(() => OnLyricChange?.Invoke());
     }
 
 
@@ -1349,6 +1350,7 @@ public enum PlayMode
 
 public static class Utils
 {
+    private static readonly Regex LyricTimeRegex = new Regex("\\[([0-9:.]*)\\]", RegexOptions.Compiled);
     public static List<SongLyric> ConvertPureLyric(string lyricAllText, bool hasTranslationsInLyricText = false)
     {
         var lyrics = new List<SongLyric>();
@@ -1378,11 +1380,24 @@ public static class Utils
             if (!TimeSpan.TryParse("00:" + prefix, out var time)) continue;
 
             var lrcText = lyricTextLine.Substring(lyricTextLine.IndexOf(']') + 1);
-            while (lrcText.Trim().StartsWith('['))
+            if (lrcText.Trim().StartsWith('['))
             {
-                //一句双时间
-                lyrics = lyrics.Union(ConvertPureLyric(lrcText)).ToList();
-                lrcText = lrcText.Substring(lyricTextLine.IndexOf(']') + 1);
+                // 一句多时间
+                // 使用正则的话可能效率还行
+                var realLyric = LyricTimeRegex.Replace(lrcText, "").Trim();
+                foreach (Match match in LyricTimeRegex.Matches(lrcText))
+                {
+                    if (!TimeSpan.TryParse("00:" + match.Result("$1"), out var partTime)) continue;
+                    lyrics.Add(new SongLyric
+                    {
+                        LyricTime = partTime + offset,
+                        PureLyric = realLyric,
+                        Translation = null,
+                        HaveTranslation = false
+                    });
+                }
+
+                lrcText = realLyric;
             }
 
             // 移除歌词前空格
@@ -1459,11 +1474,21 @@ public static class Utils
 
             var lrcText = lyricTextLine.Substring(lyricTextLine.IndexOf(']') + 1);
 
-            while (lrcText.Trim().StartsWith('['))
+            if (lrcText.Trim().StartsWith('['))
             {
-                //一句双时间
-                ConvertTranslation(lrcText, lyrics);
-                lrcText = lrcText.Substring(lyricTextLine.IndexOf(']') + 1);
+                // 一句多时间
+                // 使用正则的话可能效率还行
+                var realLyric = LyricTimeRegex.Replace(lrcText, "").Trim();
+                foreach (Match match in LyricTimeRegex.Matches(lrcText))
+                {
+                    if (!TimeSpan.TryParse("00:" + match.Result("$1"), out var partTime)) continue;
+                    foreach (var songLyric in lyrics.Where(t=>t.LyricTime == partTime + offset))
+                    {
+                        songLyric.Translation = realLyric;
+                    }
+                }
+
+                lrcText = realLyric;
             }
 
             var isSet = false;
