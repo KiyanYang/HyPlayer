@@ -1377,7 +1377,7 @@ public static class Utils
                 offset = new TimeSpan(0, 0, 0, 0, offsetInt);
             }
 
-            if (!TimeSpan.TryParse("00:" + prefix, out var time)) continue;
+            if (!TimeSpan.TryParse("00:"+prefix, out var time)) continue;
 
             var lrcText = lyricTextLine.Substring(lyricTextLine.IndexOf(']') + 1);
             if (lrcText.Trim().StartsWith('['))
@@ -1387,7 +1387,7 @@ public static class Utils
                 var realLyric = LyricTimeRegex.Replace(lrcText, "").Trim();
                 foreach (Match match in LyricTimeRegex.Matches(lrcText))
                 {
-                    if (!TimeSpan.TryParse("00:" + match.Result("$1"), out var partTime)) continue;
+                    if (!TimeSpan.TryParse("00:"+match.Result("$1"), out var partTime)) continue;
                     lyrics.Add(new SongLyric
                     {
                         LyricTime = partTime + offset,
@@ -1398,21 +1398,6 @@ public static class Utils
                 }
 
                 lrcText = realLyric;
-            }
-
-            // 移除歌词前空格
-            if (lrcText.StartsWith(' '))
-            {
-                if (spaceBeforeLyric) lrcText = lrcText.Substring(1);
-            }
-            else
-            {
-                if (!string.IsNullOrWhiteSpace(lrcText))
-                {
-                    if (spaceBeforeLyric) lyrics.ForEach(t => t.PureLyric = " " + t.PureLyric);
-
-                    spaceBeforeLyric = false;
-                }
             }
 
             var haveTranslation = false;
